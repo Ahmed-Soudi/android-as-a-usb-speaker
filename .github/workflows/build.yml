@@ -1,0 +1,97 @@
+name: Build universal module
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/**'
+      - 'module/**'
+      - '.github/workflows/build.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: android-actions/setup-android@v3
+      - name: Install NDK
+        run: sdkmanager "ndk;27.2.12479018" "cmake;3.22.1"
+
+      - name: Fetch Android/Termux alsa-lib runtime
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p third_party/debs third_party/root
+
+          REPO=https://packages-cf.termux.dev/apt/termux-main
+          INDEX=/tmp/termux-Packages
+
+          # Resolve package filenames from Termux repository metadata instead of
+          # hard-coding versioned pool URLs (which are routinely removed).
+          if curl -fsSL --retry 4 "$REPO/dists/stable/main/binary-aarch64/Packages.xz" \
+              | xz -dc > "$INDEX"; then
+            :
+          else
+            curl -fsSL --retry 4 "$REPO/dists/stable/main/binary-aarch64/Packages.gz" \
+              | gzip -dc > "$INDEX"
+          fi
+
+          fetch_pkg() {
+            pkg="$1"
+            filename="$(awk -v p="$pkg" '
+              $1 == "Package:" { hit = ($2 == p) }
+              hit && $1 == "Filename:" { print $2; exit }
+            ' "$INDEX")"
+            if [ -z "$filename" ]; then
+              echo "Package not found in Termux index: $pkg" >&2
+              exit 1
+            fi
+            echo "Resolved $pkg -> $filename"
+            curl -fL --retry 4 -o "third_party/debs/$pkg.deb" "$REPO/$filename"
+          }
+
+          fetch_pkg alsa-lib
+          fetch_pkg libandroid-shmem
+          fetch_pkg libandroid-sysv-semaphore
+
+          for d in third_party/debs/*.deb; do
+            dpkg-deb -x "$d" third_party/root
+          done
+
+          PREFIX="$PWD/third_party/root/data/data/com.termux/files/usr"
+          test -f "$PREFIX/include/alsa/asoundlib.h"
+          test -f "$PREFIX/lib/libasound.so"
+          echo "ALSA_PREFIX=$PREFIX" >> "$GITHUB_ENV"
+          readelf -d "$PREFIX/lib/libasound.so" | grep NEEDED || true
+
+      - name: Build arm64 Android binary against alsa-lib
+        run: |
+          NDK="$ANDROID_SDK_ROOT/ndk/27.2.12479018"
+          cmake -S src -B build \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-28 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_MAKE_PROGRAM=ninja \
+            -DALSA_ROOT="$ALSA_PREFIX" \
+            -G Ninja
+          cmake --build build --parallel
+          file build/android-usb-speaker
+          readelf -d build/android-usb-speaker | grep NEEDED || true
+
+      - name: Assemble module ZIP
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p module/bin module/lib64
+          cp build/android-usb-speaker module/bin/android-usb-speaker
+          cp -L "$ALSA_PREFIX/lib/libasound.so" module/lib64/libasound.so
+          for lib in libandroid-shmem.so libandroid-sysv-semaphore.so; do
+            if [ -e "$ALSA_PREFIX/lib/$lib" ]; then cp -L "$ALSA_PREFIX/lib/$lib" "module/lib64/$lib"; fi
+          done
+          chmod 0755 module/bin/android-usb-speaker module/service.sh module/customize.sh module/action.sh
+          cd module
+          zip -9 -r ../android-as-a-usb-speaker-v0.11.9.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-as-a-usb-speaker-v0.11.9
+          path: android-as-a-usb-speaker-v0.11.9.zip
