@@ -1,6 +1,6 @@
 id=android-as-a-usb-speaker
 name=Android as a USB Speaker
-version=0.11.9
-versionCode=119
+version=0.11.10
+versionCode=120
 author=OpenAI + Ahmed
-description=Low-latency USB host audio to Android MEDIA speaker path. v0.11.9 recovers snd_pcm_wait XRUN/Broken-pipe events in place, avoiding unnecessary full bridge restarts seen in O32.
+description=Low-latency USB host audio to Android MEDIA speaker path. v0.11.10 (Trial148) requests one-shot USB Full-Speed for UAC1 on Trial147 kernel; retains XRUN recovery.
