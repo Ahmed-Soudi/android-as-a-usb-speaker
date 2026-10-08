@@ -224,13 +224,31 @@ audio_on() {
     return 1
   }
 
+  # Trial148: request FS only for UAC1; never force the normal Android profile.
+  speed_file="/sys/class/udc/$ctl/trial147_next_speed"
+  if [ -w "$speed_file" ]; then
+    if echo full-speed > "$speed_file"; then
+      log "Trial148: requested one-shot full-speed for $ctl"
+    else
+      log "Trial148: full-speed request failed; aborting audio bind"
+      echo "! full-speed selector write failed"
+      return 1
+    fi
+  else
+    log "Trial148: no trial147 speed selector; refusing experimental FS audio"
+    echo "! Trial147 kernel speed selector missing"
+    return 1
+  fi
+
   echo "$ctl" > "$G/UDC" 2>/dev/null || {
     rm -f "$cfg/f1"
     echo "! UDC refused UAC1 bind"
+    echo auto > "$speed_file" 2>/dev/null || true
     log "audio_on failed: bind $ctl"
     return 1
   }
 
+  log "Trial148: selector after bind=$(cat "$speed_file" 2>/dev/null) current_speed=$(cat "/sys/class/udc/$ctl/current_speed" 2>/dev/null)"
   echo audio > "$STATE"
   log "AUDIO ONLY enabled on $ctl (1d6b:0101 Android USB Speaker; UAC1 48k stereo S16, dual-direction for gadget capture); Android USB functions disabled"
 
@@ -266,6 +284,8 @@ audio_off() {
   [ -n "$ctl" ] && release_audio_power "$ctl"
 
   unbind_once 2>/dev/null || true
+  [ -n "$ctl" ] && [ -w "/sys/class/udc/$ctl/trial147_next_speed" ] &&
+    echo auto > "/sys/class/udc/$ctl/trial147_next_speed" 2>/dev/null || true
   remove_config_links
   [ -d "$G/functions/$TAG" ] && rmdir "$G/functions/$TAG" 2>/dev/null || true
   restore_normal_identity
