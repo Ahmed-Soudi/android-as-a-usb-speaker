@@ -103,8 +103,8 @@ jobs:
           done
           chmod 0755 module/bin/android-usb-speaker module/service.sh module/customize.sh module/action.sh
           cd module
-          zip -9 -r ../android-as-a-usb-speaker-v0.11.9.zip .
+          zip -9 -r ../android-as-a-usb-speaker-v0.11.10.zip .
       - uses: actions/upload-artifact@v4
         with:
-          name: android-as-a-usb-speaker-v0.11.9
-          path: android-as-a-usb-speaker-v0.11.9.zip
+          name: android-as-a-usb-speaker-v0.11.10
+          path: android-as-a-usb-speaker-v0.11.10.zip
